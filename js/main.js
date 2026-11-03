@@ -16,6 +16,7 @@ const DEFAULTS = {
   debugLog: false,
   backend: "idb",
   dirName: "",
+  subDir: "",
   homeUrl: location.href.split("#")[0],
   proxy: "",
   sniffEnabled: true,
@@ -84,7 +85,7 @@ function titleFromUrl(url) {
   } catch { return "下载任务"; }
 }
 
-async function confirmAndAdd({ url, referer, title, filename, kind, start = true, threads, remux, sanitize }) {
+async function confirmAndAdd({ url, referer, title, filename, kind, start = true, threads, remux, sanitize, subDir }) {
   if (!/^https?:\/\//i.test(url)) { ui.toast("只支持 http(s) 地址", "err"); return; }
   const k = kind || detectKind(url);
   const chosen = await ui.openConfirm({
@@ -92,14 +93,19 @@ async function confirmAndAdd({ url, referer, title, filename, kind, start = true
     title: title || titleFromUrl(url),
     filename: filename || title || titleFromUrl(url),
     threads: threads || settings.threads,
-    start, remux, sanitize,
+    start, remux, sanitize, subDir,
   });
   if (!chosen) return;
+  if (chosen.subDir !== settings.subDir) {
+    await saveSettings({ subDir: chosen.subDir });
+    await pushSettingsToBridge();
+  }
   const record = Task.create({
     url, referer: referer || "", title: title || titleFromUrl(url),
     filename: chosen.filename, kind: k,
     remux: chosen.remux, sanitize: chosen.sanitize,
     threads: chosen.threads, backend: settings.backend, dirKey: "dir",
+    subDir: chosen.subDir,
     start: chosen.start,
   }, settings);
   await manager.add(record);
@@ -130,6 +136,7 @@ async function readHashDispatch() {
           url: payload.url, referer: payload.referer || "", title: payload.title || "",
           filename: payload.filename || "", kind: payload.kind, threads: payload.threads,
           remux: payload.remux, sanitize: payload.sanitize, start: payload.start !== false,
+          subDir: payload.subDir,
         });
       }
     } catch (e) { log("解析派发参数失败:", e.message); }
@@ -148,6 +155,7 @@ async function pollInbox() {
         url: item.url, referer: item.referer || "", title: item.title || "",
         filename: item.filename || "", kind: item.kind, threads: item.threads,
         remux: item.remux, sanitize: item.sanitize, start: item.start !== false,
+        subDir: item.subDir,
       });
     }
   }

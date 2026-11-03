@@ -109,14 +109,11 @@ export class UI {
       ? "分片直写本地文件 · 支持断点续传 / 更换地址续传"
       : "分片缓存于 IndexedDB · 支持断点续传 / 更换地址续传";
 
-    $("sniffClose").onclick = () => { $("sniffModal").hidden = true; };
-    $("sniffClear").onclick = () => this.cb.onDispatch && this.cb.onDispatch("clear");
-
     $("confirmModal").querySelector("#cm_cancel").onclick = () => this.closeConfirm(null);
     $("confirmModal").querySelector("#cm_startBtn").onclick = () => this.closeConfirm(this.readConfirm());
     $("cm_pickDir").onclick = async () => {
       const h = await this.cb.onSaveDir();
-      if (h) $("cm_dir").textContent = h.name;
+      if (h) { $("cm_dir").textContent = h.name; this.updateConfirmPath(); }
     };
   }
 
@@ -327,7 +324,12 @@ export class UI {
       list.innerHTML = `<div class="empty">暂无嗅探记录。在视频站点点击悬浮球可派发任务到本页。</div>`;
       return;
     }
-    list.innerHTML = "";
+    list.innerHTML = `<div class="sniffbar">
+        <span>共 ${this.sniff.length} 条，由油猴脚本在各站点收集（跨站点共享）</span>
+        <span class="spacer"></span>
+        <button class="ghost" id="sniffClear">清空全部</button>
+      </div>`;
+    this.$("sniffClear").onclick = () => this.cb.onDispatch && this.cb.onDispatch("clear");
     for (const s of this.sniff) {
       const row = document.createElement("div");
       row.className = "task";
@@ -375,10 +377,24 @@ export class UI {
         ? !!payload.sanitize
         : this.settings.sanitizeName !== false;
       $("cm_dir").textContent = this.settings.backend === "fs" ? (this.settings.dirName || "已授权文件夹") : "浏览器默认下载目录";
+      $("cm_subdir").value = payload.subDir != null ? payload.subDir : (this.settings.subDir || "");
+      this.updateConfirmPath();
+      $("cm_subdir").oninput = () => this.updateConfirmPath();
       $("confirmModal").hidden = false;
       $("cm_name").focus();
       $("cm_name").select();
     });
+  }
+
+  updateConfirmPath() {
+    const $ = this.$;
+    const sub = $("cm_subdir").value.trim().replace(/^[/\\]+|[/\\]+$/g, "");
+    if (this.settings.backend === "fs") {
+      const dir = this.settings.dirName || "已授权文件夹";
+      $("cm_pathHint").textContent = sub ? `→ ${dir}/${sub}/` : `→ ${dir}/（未设置子目录，直接存于所选文件夹）`;
+    } else {
+      $("cm_pathHint").textContent = sub ? "子目录仅在「选择文件夹」直写模式下生效" : "未选择文件夹，完成后由浏览器另存";
+    }
   }
 
   closeConfirm(result) {
@@ -393,6 +409,7 @@ export class UI {
     return {
       filename: $("cm_name").value.trim(),
       threads: parseInt($("cm_threads").value, 10) || 4,
+      subDir: $("cm_subdir").value.trim(),
       start: $("cm_start").checked,
       remux: $("cm_remux").checked,
       sanitize: $("cm_sanitize").checked,

@@ -12,7 +12,7 @@
     <div class="brand">
       <span class="bolt">⚡</span>
       <strong>Web下载器</strong>
-      <span class="ver" id="version">v3.1.0</span>
+      <span class="ver" id="version">v3.1.1</span>
       <span class="dot">·</span>
       <span class="engine" id="engineState">引擎检测中</span>
     </div>
@@ -103,6 +103,11 @@
         <button class="ghost" id="cm_pickDir">更改文件夹…</button>
       </span>
     </div>
+    <div class="field">
+      <span class="label">子目录</span>
+      <input id="cm_subdir" type="text" spellcheck="false" placeholder="可选，保存到所选文件夹下的子文件夹">
+      <span class="sub" id="cm_pathHint"></span>
+    </div>
     <div class="field"><span class="label">线程数</span><input id="cm_threads" type="number" min="1" max="16" style="width:70px">
       <label class="check"><input id="cm_start" type="checkbox"> 立即开始</label>
     </div>
@@ -118,19 +123,6 @@
     <div class="actions">
       <button class="ghost" id="cm_cancel">取消</button>
       <button class="primary" id="cm_startBtn">开始下载</button>
-    </div>
-  </div>
-</div>
-
-<!-- 嗅探资源详情弹窗 -->
-<div class="modal" id="sniffModal" hidden>
-  <div class="dialog wide">
-    <h3>📡 嗅探到的资源</h3>
-    <p class="note">嗅探由油猴脚本在各站点页面收集并派发到本页。若列表为空，请在视频页面点击悬浮球的「下载」。</p>
-    <div id="sniffList"></div>
-    <div class="actions">
-      <button class="ghost" id="sniffClear">清空</button>
-      <button class="primary" id="sniffClose">关闭</button>
     </div>
   </div>
 </div>

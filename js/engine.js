@@ -1,7 +1,7 @@
 // 下载引擎：任务规划、多线程分片调度、断点续传、落盘与转封装
 import { getArrayBuffer, getRange, probe, NetError } from "./net.js";
 import { loadManifest, decryptSegment, PlaylistError } from "./m3u8.js";
-import { createWriter, verifyPermission, loadDirHandle } from "./writer.js";
+import { createWriter, verifyPermission, loadDirHandle, resolveSubDir } from "./writer.js";
 import { putTask, delTask, allTasks, chunkDeleteTask, extraPut, extraDel } from "./db.js";
 import {
   bitmapNew, bitmapGet, bitmapSet, uid, log,
@@ -82,12 +82,13 @@ export class Task {
     this.pendingData = {};
     this.commitCursor = 0;
     this.writeOffset = 0;
+    this.retryQueue = [];
     this._bytesMark = 0;
     this._timeMark = Date.now();
     this._timer = null;
   }
 
-  static create({ url, referer, title, filename, kind, remux, sanitize, threads, backend, dirKey, start = true }, settings = {}) {
+  static create({ url, referer, title, filename, kind, remux, sanitize, threads, backend, dirKey, subDir, start = true }, settings = {}) {
     const id = uid();
     const ext = kind === "hls" ? "ts" : (extOf(url) || "bin");
     const base = filename || title || baseNameOf(url).replace(/\.[a-z0-9]{1,5}$/i, "") || `download-${Date.now()}`;
@@ -105,6 +106,7 @@ export class Task {
       threads: threads || settings.threads || 4,
       backend: backend || "idb",
       dirKey: dirKey || "dir",
+      subDir: subDir || "",
       status: start ? "queued" : "paused",
       totalUnits: 0,
       doneUnits: 0,
@@ -126,7 +128,7 @@ export class Task {
   record() {
     const out = {};
     for (const k of ["id", "kind", "url", "referer", "title", "baseName", "filename", "ext", "remux", "sanitize",
-      "threads", "backend", "dirKey", "status", "totalUnits", "bytesTotal", "units", "keys", "duration", "error", "msg",
+      "threads", "backend", "dirKey", "subDir", "status", "totalUnits", "bytesTotal", "units", "keys", "duration", "error", "msg",
       "createdAt", "updatedAt", "finishedAt", "outputName"]) {
       out[k] = this[k];
     }
@@ -205,6 +207,14 @@ export class Task {
           await this.persistNow();
           return;
         }
+        try {
+          dirHandle = await resolveSubDir(dirHandle, this.subDir);
+        } catch (e) {
+          this.running = false;
+          this.emit({ status: "error", error: `子目录「${this.subDir}」创建失败：${e.message}` });
+          await this.persistNow();
+          return;
+        }
       }
       this.writer = await createWriter(this, { dirHandle, filename: this.filename });
       await this.writer.prepare({ totalSize: this.bytesTotal || 0 });
@@ -213,6 +223,7 @@ export class Task {
 
       this.cursor = 0;
       this.inflight = new Set();
+      this.retryQueue = [];
       this.emit({ msg: "" });
       const n = Math.max(1, Math.min(this.threads || 4, 16));
       const left = this.totalUnits - this.commitCursor;
@@ -233,12 +244,20 @@ export class Task {
   async nextIndex() {
     while (this.running && this.ctrl && !this.ctrl.signal.aborted) {
       let i = -1;
-      while (this.cursor < this.totalUnits) {
-        const c = this.cursor++;
+      // 重试队列优先：失败的分片不能被游标越过后直接收尾
+      while (this.retryQueue.length) {
+        const c = this.retryQueue.shift();
         if (bitmapGet(this.bitmap, c) || this.inflight.has(c)) continue;
         i = c; break;
       }
-      if (i === -1) return this.inflight.size ? { wait: true } : null;
+      if (i === -1) {
+        while (this.cursor < this.totalUnits) {
+          const c = this.cursor++;
+          if (bitmapGet(this.bitmap, c) || this.inflight.has(c)) continue;
+          i = c; break;
+        }
+      }
+      if (i === -1) return (this.inflight.size || this.retryQueue.length) ? { wait: true } : null;
       if (Object.keys(this.pendingData).length > (this.threads || 4) * 3) {
         await sleep(120);
         continue;
@@ -288,6 +307,7 @@ export class Task {
         log(`分片 ${i + 1} 第 ${tries} 次失败，${wait}ms 后重试:`, e.message);
         this.emit({ msg: `重试第 ${i + 1} 个分片（${tries}/${MAX_UNIT_RETRY}）…` });
         await sleep(wait);
+        this.retryQueue.push(i);
       }
     }
   }
@@ -304,7 +324,9 @@ export class Task {
       const r = unit.off !== undefined && unit.end !== undefined
         ? await getRange(unit.u, unit.off, unit.end, opts)
         : await getArrayBuffer(unit.u, opts);
-      return toBytes(r.body);
+      const bytes = toBytes(r.body);
+      if (!bytes.byteLength) throw new Error("响应为空（0 字节）");
+      return bytes;
     }
     const r = await getArrayBuffer(unit.u, opts);
     let bytes = toBytes(r.body);
@@ -321,6 +343,7 @@ export class Task {
         bytes = concat(toBytes(mr.body), bytes);
       } catch (e) { log("init 分片获取失败:", e.message); }
     }
+    if (!bytes.byteLength) throw new Error("分片内容为空（0 字节）");
     return bytes;
   }
 
@@ -353,6 +376,12 @@ export class Task {
   }
 
   async finalize() {
+    if (this.commitCursor < this.totalUnits) {
+      const msg = `还有 ${this.totalUnits - this.commitCursor} 个分片未完成`;
+      this.emit({ status: "error", error: msg, msg, speed: 0 });
+      await this.persistNow();
+      return;
+    }
     this.running = false;
     this.emit({ msg: "写入收尾…" });
     if (this.writer) { await this.writer.finalize(); this.writer = null; }
@@ -384,13 +413,13 @@ export class Task {
 
   async readOutput() {
     if (this.writer) return await this.writer.readOutput();
-    const dirHandle = this.backend === "fs" ? await loadDirHandle(this.dirKey) : null;
+    const dirHandle = this.backend === "fs" ? await resolveSubDir(await loadDirHandle(this.dirKey), this.subDir) : null;
     const w = await createWriter(this, { dirHandle, filename: this.outputName || this.filename });
     return await w.readOutput();
   }
 
   async saveAs() {
-    const dirHandle = this.backend === "fs" ? await loadDirHandle(this.dirKey) : null;
+    const dirHandle = this.backend === "fs" ? await resolveSubDir(await loadDirHandle(this.dirKey), this.subDir) : null;
     const w = await createWriter(this, { dirHandle, filename: this.outputName || this.filename });
     if (this.backend === "fs") await w.prepare({ totalSize: this.writeOffset });
     return await w.saveAs();
@@ -470,7 +499,7 @@ function concat(a, b) {
 
 async function saveExtra(task, name, blob) {
   if (task.backend === "fs") {
-    const dir = await loadDirHandle(task.dirKey);
+    const dir = await resolveSubDir(await loadDirHandle(task.dirKey), task.subDir);
     if (!dir) throw new Error("保存文件夹不可用");
     const fh = await dir.getFileHandle(name, { create: true });
     const w = await fh.createWritable();

@@ -1,6 +1,6 @@
 // 通用工具：格式化、文件名净化、位图、日志
 
-export const VERSION = "3.1.0";
+export const VERSION = "3.1.1";
 
 export function fmtBytes(n) {
   if (!n || n < 0) return "0 B";

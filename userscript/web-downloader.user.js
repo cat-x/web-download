@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web下载器【嗅探 + 统一主页】
 // @name:zh-CN   Web下载器【嗅探 + 统一主页】
-// @version      3.1.0
+// @version      3.1.1
 // @description  全站嗅探 m3u8 / 视频直链，悬浮球管理，任务确认后派发到统一主页下载器：多线程分片、分段直写本地文件、断点续传、转封装 MP4。确认框显示保存路径，主页地址可在设置中修改并检测可达性。
 // @author       you
 // @homepage     https://cat-x.github.io/web-download/
@@ -19,7 +19,7 @@
 (function () {
   "use strict";
 
-  const VERSION = "3.1.0";
+  const VERSION = "3.1.1";
   const DEFAULT_HOME = "https://cat-x.github.io/web-download/";
   const MSG_SNIFF = "wd3:sniff";
   const isTop = window.top === window;
@@ -165,7 +165,7 @@
   // ============================================================
   // 2) 资源嗅探
   // ============================================================
-  let settingsCache = { threads: 4, remuxMp4: true, sanitizeName: true, popup: true, bubble: true, sniffEnabled: true };
+  let settingsCache = { threads: 4, remuxMp4: true, sanitizeName: true, popup: true, bubble: true, sniffEnabled: true, subDir: "" };
   let sniffList = [];
 
   async function refreshSettings() {
@@ -181,6 +181,13 @@
     if (s.dirName) return `本地文件夹：${s.dirName}`;
     if (s.backend === "idb") return "浏览器默认下载目录（先缓存，完成后另存）";
     return "沿用主页下载器「设置」中的路径";
+  }
+
+  // 子目录输入框的默认值提示：不填就落在主页当前路径里
+  function defaultSubPlaceholder() {
+    const s = settingsCache;
+    if (s.backend === "fs") return `默认直接保存到 ${s.dirName || "已授权文件夹"}，可填子文件夹名`;
+    return "默认由浏览器另存，子目录仅在主页已选择文件夹时生效";
   }
 
   function looksLikePlaylistText(text) {
@@ -541,7 +548,8 @@
           <span class="sub">无损重封装，首次使用需联网加载组件</span></div>
         <div class="row"><span class="k"></span><label><input type="checkbox" class="sani" ${settingsCache.sanitizeName !== false ? "checked" : ""}> 文件名跨平台自动修正</label></div>
         <div class="row"><span class="k">保存路径</span><span class="path" title="${esc(savePathText())}">${esc(savePathText())}</span></div>
-        <div class="row"><span class="k"></span><span class="sub">任务将在统一主页下载器中执行，支持分段直写本地文件与断点续传。路径在主页「设置」中修改。</span></div>
+        <div class="row"><span class="k">子目录</span><input type="text" class="subdir" placeholder="${esc(defaultSubPlaceholder())}" value="${esc(settingsCache.subDir || "")}"></div>
+        <div class="row"><span class="k"></span><span class="sub">任务在统一主页下载器中执行。留空即按上面的默认路径保存；填写则在所选文件夹下建子文件夹。换文件夹请在主页确认框点「更改文件夹…」。</span></div>
         <div class="ops2"><button class="cancel">取消</button><button class="primary ok">开始下载</button></div>`;
       els.mask.appendChild(dlg);
       dlg.querySelector(".cancel").onclick = () => els.mask.classList.remove("on");
@@ -556,6 +564,7 @@
           threads: parseInt(dlg.querySelector(".th").value, 10) || 4,
           remux: dlg.querySelector(".remux").checked,
           sanitize: dlg.querySelector(".sani").checked,
+          subDir: dlg.querySelector(".subdir").value.trim(),
           start: dlg.querySelector(".start").checked,
           ts: Date.now(),
         };

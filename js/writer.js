@@ -40,6 +40,17 @@ export async function dropDirHandle(key = "dir") {
   await handleDel(key);
 }
 
+// 任务级子目录：在已授权文件夹下按需创建；".." 被忽略，无法越出授权根目录
+export async function resolveSubDir(base, subDir) {
+  if (!base || !subDir) return base;
+  let dir = base;
+  for (const seg of String(subDir).split(/[\\/]+/)) {
+    if (!seg || seg === "." || seg === "..") continue;
+    dir = await dir.getDirectoryHandle(seg.replace(/[\u0000-\u001f:*?"<>|]/g, "_"), { create: true });
+  }
+  return dir;
+}
+
 // ---------- 统一写入接口 ----------
 class BaseWriter {
   constructor(task) {
