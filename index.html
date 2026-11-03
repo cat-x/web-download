@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web 下载器 · 统一主页</title>
+<link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="bolt">⚡</span>
+      <strong>Web下载器</strong>
+      <span class="ver" id="version">v3.0.0</span>
+      <span class="dot">·</span>
+      <span class="engine" id="engineState">引擎检测中</span>
+    </div>
+    <div class="status">
+      <span class="badge" id="globalBadge">↓ 空闲</span>
+    </div>
+    <nav class="topnav">
+      <a href="./index.html" title="重新载入主页">🏠 重载</a>
+      <button class="linkbtn" id="toggleSettings">⚙ 设置</button>
+      <button class="linkbtn" id="toggleLog">🐞 日志</button>
+    </nav>
+  </header>
+
+  <section class="addbar">
+    <input id="urlInput" type="text" spellcheck="false"
+           placeholder="粘贴 http(s) 直链 / m3u8 地址，回车添加下载任务">
+    <button class="primary" id="addTask">＋ 添加任务</button>
+  </section>
+
+  <section class="settings" id="settings" hidden>
+    <div class="row">
+      <label>线程数 <input id="s_threads" type="number" min="1" max="16"></label>
+      <label>分块(MB) <input id="s_chunkMB" type="number" min="1" max="64"></label>
+      <label>并发任务 <input id="s_maxTasks" type="number" min="1" max="8"></label>
+      <label class="check"><input id="s_autoSave" type="checkbox"> 完成后自动另存</label>
+    </div>
+    <div class="row">
+      <span>保存文件夹：</span>
+      <span class="dir" id="s_dirName">浏览器默认下载目录</span>
+      <button class="ghost" id="s_pickDir">选择…</button>
+      <button class="ghost" id="s_clearDir" hidden>取消</button>
+      <span class="hint" id="s_dirHint"></span>
+    </div>
+    <div class="row">
+      <label class="check"><input id="s_remux" type="checkbox"> TS/m3u8 完成后默认转封装 MP4</label>
+      <label class="check"><input id="s_sanitize" type="checkbox"> 文件名跨平台自动修正</label>
+      <label class="check"><input id="s_debug" type="checkbox"> 调试日志（控制台）</label>
+    </div>
+    <div class="row">
+      <label>统一主页 URL <input id="s_homeUrl" type="text" spellcheck="false"></label>
+      <label>CORS 代理模板 <input id="s_proxy" type="text" spellcheck="false"
+        placeholder="可选，如 https://cors.example.com/{url}"></label>
+    </div>
+    <div class="row">
+      <button class="primary" id="s_save">保存设置</button>
+      <span class="hint">未装油猴脚本时跨域分片会被浏览器拦截，页面顶部会给出提示。</span>
+    </div>
+  </section>
+
+  <section class="tabs">
+    <button class="tab active" data-tab="active">进行中 <span id="cActive">0</span></button>
+    <button class="tab" data-tab="done">已完成 <span id="cDone">0</span></button>
+    <button class="tab" data-tab="all">全部 <span id="cAll">0</span></button>
+    <button class="tab" data-tab="sniff">📡 嗅探 <span id="cSniff">0</span></button>
+  </section>
+
+  <main class="list" id="list"></main>
+
+  <section class="logpanel" id="logpanel" hidden>
+    <div class="loghead">
+      <strong>运行日志</strong>
+      <button class="ghost" id="logCopy">复制诊断报告</button>
+      <button class="ghost" id="logClear">清空</button>
+    </div>
+    <pre id="logBody"></pre>
+  </section>
+
+  <footer class="bottombar">
+    <button class="linkbtn" id="opResumeAll">全部继续</button>
+    <button class="linkbtn" id="opPauseAll">全部暂停</button>
+    <button class="linkbtn" id="opSaveAll">另存全部已完成</button>
+    <button class="linkbtn" id="opClearDone">清除已完成</button>
+    <span class="spacer"></span>
+    <span class="foot" id="footHint">分片缓存 · 支持断点续传 / 更换地址续传</span>
+  </footer>
+</div>
+
+<!-- 下载任务确认弹窗 -->
+<div class="modal" id="confirmModal" hidden>
+  <div class="dialog">
+    <h3>🔔 确认下载任务</h3>
+    <div class="field"><span class="label">资源链接</span><span class="value url" id="cm_url"></span></div>
+    <div class="field"><span class="label">文件名</span><input id="cm_name" type="text"></div>
+    <div class="field">
+      <span class="label">保存位置</span>
+      <span class="value">
+        <span id="cm_dir">浏览器默认下载目录</span>
+        <button class="ghost" id="cm_pickDir">更改文件夹…</button>
+      </span>
+    </div>
+    <div class="field"><span class="label">线程数</span><input id="cm_threads" type="number" min="1" max="16" style="width:70px">
+      <label class="check"><input id="cm_start" type="checkbox"> 立即开始</label>
+    </div>
+    <div class="field"><span class="label"></span>
+      <label class="check"><input id="cm_remux" type="checkbox"> 完成后转 MP4</label>
+      <span class="sub">无损重封装（-c copy）；首次使用联网加载组件，失败不影响 TS 成品</span>
+    </div>
+    <div class="field"><span class="label"></span>
+      <label class="check"><input id="cm_sanitize" type="checkbox"> 文件名跨平台自动修正</label>
+      <span class="sub">取消则按原名保存（可能含目标系统非法字符无法保存）</span>
+    </div>
+    <p class="note">超过并发数的任务会自动排队；取消勾选「立即开始」则放入暂停列表，稍后手动继续。</p>
+    <div class="actions">
+      <button class="ghost" id="cm_cancel">取消</button>
+      <button class="primary" id="cm_startBtn">开始下载</button>
+    </div>
+  </div>
+</div>
+
+<!-- 嗅探资源详情弹窗 -->
+<div class="modal" id="sniffModal" hidden>
+  <div class="dialog wide">
+    <h3>📡 嗅探到的资源</h3>
+    <p class="note">嗅探由油猴脚本在各站点页面收集并派发到本页。若列表为空，请在视频页面点击悬浮球的「下载」。</p>
+    <div id="sniffList"></div>
+    <div class="actions">
+      <button class="ghost" id="sniffClear">清空</button>
+      <button class="primary" id="sniffClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
