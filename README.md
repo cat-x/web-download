@@ -32,3 +32,5 @@ mkdir -p <本仓库>/userscript && cp <开发目录>/userscript/web-downloader.u
 ```
 
 本地验证：`node dev/serve.mjs` 后访问 `http://localhost:8123/`，夹具（普通/加密/master m3u8、Range 大文件）在 `dev/fixture/`，请求日志写 `dev/requests.log`。
+
+GitHub Pages 给静态资源带 `cache-control: max-age=600`，发布后 10 分钟内浏览器可能混用新旧模块；若主页角标版本不对，请强制刷新（⌘/Ctrl + Shift + R）。
